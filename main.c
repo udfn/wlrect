@@ -60,7 +60,7 @@ int main (int argc, char *argv[]) {
 	}
 	int x, y, width, height;
 	if (sscanf(argv[1], "%i,%i %ix%i", &x, &y, &width, &height) != 4) {
-		puts("I need to know where to place the border: \"x,y widthxheight\"");
+		puts("I need to know where to be: \"x,y widthxheight\"");
 		goto finish;
 	}
 	// Might also want to handle multiple outputs...
