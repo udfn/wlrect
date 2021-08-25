@@ -11,7 +11,7 @@
 #define DASH_LENGTH 12.0
 struct nwl_surface *main_surface;
 
-static bool rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surface) {
+static void rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surface) {
 	cairo_t *cr = cairo_create(cairo_surface);
 	cairo_scale(cr, surface->scale, surface->scale);
 	cairo_rectangle(cr, 1, 1, surface->width-2, surface->height-2);
@@ -26,7 +26,7 @@ static bool rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surf
 	cairo_set_source_rgba(cr, 0.8, 0.43, 0.1, 0.85);
 	cairo_stroke(cr);
 	cairo_destroy(cr);
-	return true;
+	nwl_surface_swapbuffers(surface);
 }
 
 struct nwl_output *find_output(struct nwl_state *state, int32_t x, int32_t y) {
@@ -81,10 +81,10 @@ int main (int argc, char *argv[]) {
 	main_surface = nwl_surface_create(&state, "wlrect", NWL_SURFACE_RENDER_SHM);
 	nwl_surface_renderer_cairo(main_surface, rect_render);
 	nwl_surface_role_layershell(main_surface, output->output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY);
-	zwlr_layer_surface_v1_set_exclusive_zone(main_surface->wl.layer_surface, -1);
-	zwlr_layer_surface_v1_set_anchor(main_surface->wl.layer_surface, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM|
+	zwlr_layer_surface_v1_set_exclusive_zone(main_surface->role.layer.wl, -1);
+	zwlr_layer_surface_v1_set_anchor(main_surface->role.layer.wl, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM|
 			ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP|ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT|ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-	zwlr_layer_surface_v1_set_margin(main_surface->wl.layer_surface, y, x2, y2, x);
+	zwlr_layer_surface_v1_set_margin(main_surface->role.layer.wl, y, x2, y2, x);
 	struct wl_region *reg = wl_compositor_create_region(state.compositor);
 	wl_surface_set_input_region(main_surface->wl.surface, reg);
 	wl_surface_commit(main_surface->wl.surface);
