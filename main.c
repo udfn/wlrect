@@ -50,7 +50,7 @@ int main (int argc, char *argv[]) {
 	if (nwl_wayland_init(&state)) {
 		return 1;
 	}
-	if (state.layer_shell == NULL) {
+	if (state.wl.layer_shell == NULL) {
 		fprintf(stderr, "No layer shell. I need it.\n");
 		goto finish;
 	}
@@ -78,14 +78,14 @@ int main (int argc, char *argv[]) {
 	y -= output->y + 2;
 	int x2 = output->width - (x + width + 4);
 	int y2 = output->height - (y + height + 4);
-	main_surface = nwl_surface_create(&state, "wlrect", NWL_SURFACE_RENDER_SHM);
-	nwl_surface_renderer_cairo(main_surface, rect_render);
+	main_surface = nwl_surface_create(&state, "wlrect");
+	nwl_surface_renderer_cairo(main_surface, false, rect_render);
 	nwl_surface_role_layershell(main_surface, output->output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY);
 	zwlr_layer_surface_v1_set_exclusive_zone(main_surface->role.layer.wl, -1);
 	zwlr_layer_surface_v1_set_anchor(main_surface->role.layer.wl, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM|
 			ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP|ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT|ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
 	zwlr_layer_surface_v1_set_margin(main_surface->role.layer.wl, y, x2, y2, x);
-	struct wl_region *reg = wl_compositor_create_region(state.compositor);
+	struct wl_region *reg = wl_compositor_create_region(state.wl.compositor);
 	wl_surface_set_input_region(main_surface->wl.surface, reg);
 	wl_surface_commit(main_surface->wl.surface);
 	wl_region_destroy(reg);
