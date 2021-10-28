@@ -26,7 +26,7 @@ static void rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surf
 	cairo_set_source_rgba(cr, 0.8, 0.43, 0.1, 0.85);
 	cairo_stroke(cr);
 	cairo_destroy(cr);
-	nwl_surface_swapbuffers(surface);
+	nwl_surface_swapbuffers(surface, 0, 0);
 }
 
 struct nwl_output *find_output(struct nwl_state *state, int32_t x, int32_t y) {
