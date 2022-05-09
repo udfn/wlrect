@@ -13,6 +13,10 @@ struct nwl_surface *main_surface;
 
 static void rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surface) {
 	cairo_t *cr = cairo_create(cairo_surface);
+	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
+	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
+	cairo_paint(cr);
+	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
 	cairo_scale(cr, surface->scale, surface->scale);
 	cairo_rectangle(cr, 1, 1, surface->width-2, surface->height-2);
 	cairo_set_line_width(cr, 2);
