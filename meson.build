@@ -6,14 +6,18 @@ project('wlrect', 'c',
 )
 wayland_client = dependency('wayland-client')
 cairo = dependency('cairo')
-nwl = subproject('nwl')
-nwl_dep = nwl.get_variable('nwl_dep')
+nwlsub = subproject('nwl', required: false)
+if nwlsub.found()
+	nwl = nwlsub.get_variable('nwl_dep')
+else
+	nwl = dependency('nwl', required: true)
+endif
 srcfiles = [
 	'main.c'
 ]
 deps = [
 	wayland_client,
 	cairo,
-	nwl_dep
+	nwl
 ]
 executable('wlrect', srcfiles, dependencies: deps, install:true)
