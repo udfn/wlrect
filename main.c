@@ -198,7 +198,7 @@ int main (int argc, char *argv[]) {
 				rect_buttons = realloc(rect_buttons, sizeof(struct wlrect_button)*++rect_buttons_num);
 				struct wlrect_button *new_b = &rect_buttons[rect_buttons_num-1];
 				new_b->text = strdup(optarg);
-				new_b->width = (strlen(new_b->text) * 11) + 8;
+				new_b->width = (strlen(new_b->text) * 10) + 8;
 			}
 			break;
 			default:
@@ -259,7 +259,7 @@ int main (int argc, char *argv[]) {
 		if (sub_width > 0) {
 			sub_width -= 2;
 			sub->impl.input_pointer = sub_handle_pointer;
-			wl_region_add(sub_reg, 0, 0, sub_width - 5, 23);
+			wl_region_add(sub_reg, 0, 0, sub_width, 23);
 		}
 		nwl_surface_renderer_cairo(sub, false, rect_sub_render);
 		nwl_surface_role_subsurface(sub, main_surface);
