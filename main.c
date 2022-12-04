@@ -1,6 +1,8 @@
-#define _POSIX_C_SOURCE 199309L
-#include <stdio.h>
+#define _POSIX_C_SOURCE 200809L
 #include <cairo.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <signal.h>
 #include <sys/timerfd.h>
 #include <time.h>
@@ -13,6 +15,17 @@
 
 #define DASH_LENGTH 12.0
 struct nwl_surface *main_surface;
+
+struct wlrect_button {
+	char *text;
+	double width;
+};
+
+int rect_buttons_num = 0;
+bool rect_clickdown = false;
+bool rect_clicked_button = false;
+int rect_hovered_button = -1;
+struct wlrect_button *rect_buttons = NULL;
 
 bool rect_show_timer = false;
 struct timespec time_start;
@@ -46,24 +59,98 @@ static void rect_sub_render(struct nwl_surface *surface, cairo_surface_t *cairo_
 	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
 	cairo_paint(cr);
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
-	char timestr[8];
-	struct timespec new_time;
-	clock_gettime(CLOCK_MONOTONIC, &new_time);
-	int secdiff = new_time.tv_sec-time_start.tv_sec;
-	int nsecdiff = new_time.tv_nsec-time_start.tv_nsec;
-	if (nsecdiff < 0) {
-		nsecdiff += 1000000000;
-		secdiff -= 1;
-	}
-	nsecdiff /= 100000000;
-	snprintf(timestr, 8, "%02d:%02d.%d", secdiff / 60, secdiff % 60, nsecdiff);
-	cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-	cairo_set_source_rgba(cr, 0.9, 0.9, 0.9, 1.0);
 	cairo_set_font_size(cr, 14);
-	cairo_move_to(cr, 6, 16);
-	cairo_show_text(cr, timestr);
+	cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+	double cur_x_pos = 1;
+	for (int i = 0; i < rect_buttons_num; i++) {
+		struct wlrect_button *cur_b = &rect_buttons[i];
+		if (i == rect_hovered_button) {
+			cairo_set_source_rgba(cr, 0.45, 0.45, 0.45, 0.85);
+		} else {
+			cairo_set_source_rgba(cr, 0.4, 0.4, 0.4, 0.6);
+		}
+		cairo_rectangle(cr, cur_x_pos, 1, cur_b->width, surface->height-2);
+		cairo_fill(cr);
+		cairo_rectangle(cr, cur_x_pos, 1, cur_b->width, surface->height-2);
+		if (i == rect_hovered_button) {
+			cairo_set_source_rgba(cr, 0.80, 0.80, 0.80, 0.95);
+		} else {
+			cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.9);
+		}
+		cairo_stroke(cr);
+		cairo_set_source_rgba(cr, 0.96, 0.96, 0.96, 1.0);
+		cairo_move_to(cr, cur_x_pos + 4, 16);
+		cairo_show_text(cr, cur_b->text);
+		cur_x_pos += 4 + cur_b->width;
+	}
+	if (rect_show_timer) {
+		char timestr[8];
+		struct timespec new_time;
+		clock_gettime(CLOCK_MONOTONIC, &new_time);
+		int secdiff = new_time.tv_sec-time_start.tv_sec;
+		int nsecdiff = new_time.tv_nsec-time_start.tv_nsec;
+		if (nsecdiff < 0) {
+			nsecdiff += 1000000000;
+			secdiff -= 1;
+		}
+		nsecdiff /= 100000000;
+		snprintf(timestr, 8, "%02d:%02d.%d", secdiff / 60, secdiff % 60, nsecdiff);
+		cairo_set_source_rgba(cr, 0.9, 0.9, 0.9, 1.0);
+		cairo_move_to(cr, cur_x_pos, 16);
+		cairo_show_text(cr, timestr);
+	}
 	cairo_destroy(cr);
 	nwl_surface_swapbuffers(surface, 0, 0);
+}
+
+static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *seat, struct nwl_pointer_event *event) {
+	if (event->changed & NWL_POINTER_EVENT_FOCUS && !event->focus) {
+		rect_hovered_button = -1;
+		nwl_surface_set_need_draw(surface, false);
+		rect_clickdown = false;
+		return;
+	}
+	bool need_redraw = false;
+	bool just_released = false;
+	if (event->changed & NWL_POINTER_EVENT_BUTTON) {
+		if (event->buttons & NWL_MOUSE_LEFT) {
+			rect_clickdown = true;
+		} else if (!(event->buttons & NWL_MOUSE_LEFT) && event->buttons_prev & NWL_MOUSE_LEFT) {
+			rect_clickdown = false;
+			just_released = true;
+		}
+	}
+	if (event->changed & NWL_POINTER_EVENT_MOTION || just_released) {
+		int pointer_x = wl_fixed_to_int(event->surface_x);
+		int accum_x = 0;
+		bool found = false;
+		for (int i = 0; i < rect_buttons_num; i++) {
+			struct wlrect_button *cur_b = &rect_buttons[i];
+			if (pointer_x > accum_x && pointer_x < (accum_x + cur_b->width+2) && !found) {
+				if (i == rect_hovered_button) {
+					if (just_released) {
+						rect_clicked_button = true;
+						surface->state->num_surfaces = 0;
+						return;
+					}
+					found = true;
+					break;
+				}
+				if (!rect_clickdown) {
+					need_redraw = true;
+					rect_hovered_button = i;
+					found = true;
+				}
+			}
+			accum_x += cur_b->width + 4;
+		}
+		if (!found) {
+			rect_hovered_button = -1;
+		}
+	}
+	if (need_redraw) {
+		nwl_surface_set_need_draw(surface, false);
+	}
 }
 
 static void handle_timer(struct nwl_state *state, void *data) {
@@ -92,17 +179,27 @@ static void print_usage(char *arg) {
 	printf("Usage: %s [options] rect\n", arg);
 	puts("(where rect is a rectangle defined like \"25,25 100x50\")");
 	puts("Options...");
-	puts("-t          Show a timer");
+	puts("-t          Show a timer.");
+	puts("-b label    Add a clickable button with the label \"label\".");
+	puts("            Clicking it closes wlrect and writes the button label to stdout.");
+	puts("            Can be used multiple times if more buttons are desired.");
 }
 
 int main (int argc, char *argv[]) {
 	struct nwl_state state = {0};
 	int retval = 1;
 	int opt;
-	while ((opt = getopt(argc, argv, "t")) != -1) {
+	while ((opt = getopt(argc, argv, "tb:")) != -1) {
 		switch (opt) {
 			case 't':
 			rect_show_timer = true;
+			break;
+			case 'b': {
+				rect_buttons = realloc(rect_buttons, sizeof(struct wlrect_button)*++rect_buttons_num);
+				struct wlrect_button *new_b = &rect_buttons[rect_buttons_num-1];
+				new_b->text = strdup(optarg);
+				new_b->width = (strlen(new_b->text) * 11) + 8;
+			}
 			break;
 			default:
 			print_usage(argv[0]);
@@ -150,36 +247,60 @@ int main (int argc, char *argv[]) {
 	zwlr_layer_surface_v1_set_margin(main_surface->role.layer.wl, y, x2, y2, x);
 	struct wl_region *reg = wl_compositor_create_region(state.wl.compositor);
 	wl_surface_set_input_region(main_surface->wl.surface, reg);
-	if (rect_show_timer) {
-		clock_gettime(CLOCK_MONOTONIC, &time_start);
+	wl_region_destroy(reg);
+	if (rect_show_timer || rect_buttons_num) {
+		struct wl_region *sub_reg = wl_compositor_create_region(state.wl.compositor);
 		struct nwl_surface *sub = nwl_surface_create(&state, "wlrect sub");
-		int sub_y_pos = y2 < 24 && y > y2 ? -24 : height + 4;
+		int sub_y_pos = y2 < 24 && y > y2 ? -23 : height + 4;
+		int sub_width = 0;
+		for (int i = 0; i < rect_buttons_num; i++) {
+			sub_width += rect_buttons[i].width + 4;
+		}
+		if (sub_width > 0) {
+			sub_width -= 2;
+			sub->impl.input_pointer = sub_handle_pointer;
+			wl_region_add(sub_reg, 0, 0, sub_width - 5, 23);
+		}
 		nwl_surface_renderer_cairo(sub, false, rect_sub_render);
 		nwl_surface_role_subsurface(sub, main_surface);
-		nwl_surface_set_size(sub, 8*9, 24);
 		wl_subsurface_set_position(sub->role.subsurface.wl, 0, sub_y_pos);
+		wl_surface_set_input_region(sub->wl.surface, sub_reg);
+		wl_region_destroy(sub_reg);
+		if (rect_show_timer) {
+			clock_gettime(CLOCK_MONOTONIC, &time_start);
+			time_update_fd = timerfd_create(CLOCK_MONOTONIC, 0);
+			struct itimerspec ts = {
+				.it_interval.tv_sec = 0,
+				.it_interval.tv_nsec = 100000000,
+				.it_value.tv_sec = 0,
+				.it_value.tv_nsec = 100000000
+			};
+			timerfd_settime(time_update_fd, 0, &ts, NULL);
+			nwl_poll_add_fd(&state, time_update_fd, handle_timer, sub);
+			sub_width += (8*8) + 4;
+		}
+		nwl_surface_set_size(sub, sub_width, 23);
 		nwl_surface_set_need_draw(sub, false);
-		wl_surface_set_input_region(sub->wl.surface, reg);
 		wl_surface_commit(sub->wl.surface);
 		wl_subsurface_set_desync(sub->role.subsurface.wl);
-		time_update_fd = timerfd_create(CLOCK_MONOTONIC, 0);
-		struct itimerspec ts = {
-			.it_interval.tv_sec = 0,
-			.it_interval.tv_nsec = 100000000,
-			.it_value.tv_sec = 0,
-			.it_value.tv_nsec = 100000000
-		};
-		timerfd_settime(time_update_fd, 0, &ts, NULL);
-		nwl_poll_add_fd(&state, time_update_fd, handle_timer, sub);
+
 	}
 	wl_surface_commit(main_surface->wl.surface);
-	wl_region_destroy(reg);
 	nwl_wayland_run(&state);
 	retval = 0;
 finish:
 	nwl_wayland_uninit(&state);
 	if (time_update_fd == -1) {
 		close(time_update_fd);
+	}
+	if (rect_clicked_button) {
+		puts(rect_buttons[rect_hovered_button].text);
+	}
+	if (rect_buttons_num) {
+		for (int i = 0; i < rect_buttons_num; i++) {
+			free(rect_buttons[i].text);
+		}
+		free(rect_buttons);
 	}
 	return retval;
 }
