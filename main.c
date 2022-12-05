@@ -22,7 +22,6 @@ struct wlrect_button {
 };
 
 int rect_buttons_num = 0;
-bool rect_clickdown = false;
 bool rect_clicked_button = false;
 int rect_hovered_button = -1;
 struct wlrect_button *rect_buttons = NULL;
@@ -107,20 +106,14 @@ static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *sea
 	if (event->changed & NWL_POINTER_EVENT_FOCUS && !event->focus) {
 		rect_hovered_button = -1;
 		nwl_surface_set_need_draw(surface, false);
-		rect_clickdown = false;
 		return;
 	}
 	bool need_redraw = false;
 	bool just_released = false;
 	if (event->changed & NWL_POINTER_EVENT_BUTTON) {
-		if (event->buttons & NWL_MOUSE_LEFT) {
-			rect_clickdown = true;
-		} else if (!(event->buttons & NWL_MOUSE_LEFT) && event->buttons_prev & NWL_MOUSE_LEFT) {
-			rect_clickdown = false;
-			just_released = true;
-		}
+		just_released = !(event->buttons & NWL_MOUSE_LEFT) && event->buttons_prev & NWL_MOUSE_LEFT;
 	}
-	if (event->changed & NWL_POINTER_EVENT_MOTION || just_released) {
+	if ((event->changed & NWL_POINTER_EVENT_MOTION && !(event->buttons & NWL_MOUSE_LEFT)) || just_released) {
 		int pointer_x = wl_fixed_to_int(event->surface_x);
 		int accum_x = 0;
 		bool found = false;
@@ -136,11 +129,9 @@ static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *sea
 					found = true;
 					break;
 				}
-				if (!rect_clickdown) {
-					need_redraw = true;
-					rect_hovered_button = i;
-					found = true;
-				}
+				need_redraw = true;
+				rect_hovered_button = i;
+				found = true;
 			}
 			accum_x += cur_b->width + 4;
 		}
@@ -263,7 +254,6 @@ int main (int argc, char *argv[]) {
 		}
 		nwl_surface_renderer_cairo(sub, false, rect_sub_render);
 		nwl_surface_role_subsurface(sub, main_surface);
-		wl_subsurface_set_position(sub->role.subsurface.wl, 0, sub_y_pos);
 		wl_surface_set_input_region(sub->wl.surface, sub_reg);
 		wl_region_destroy(sub_reg);
 		if (rect_show_timer) {
@@ -279,6 +269,8 @@ int main (int argc, char *argv[]) {
 			nwl_poll_add_fd(&state, time_update_fd, handle_timer, sub);
 			sub_width += (8*8) + 4;
 		}
+		int ofs = output->width - (x + sub_width);
+		wl_subsurface_set_position(sub->role.subsurface.wl, ofs < 0 ? ofs : 0, sub_y_pos);
 		nwl_surface_set_size(sub, sub_width, 23);
 		nwl_surface_set_need_draw(sub, false);
 		wl_surface_commit(sub->wl.surface);
