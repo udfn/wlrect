@@ -59,6 +59,7 @@ static void rect_sub_render(struct nwl_surface *surface, cairo_surface_t *cairo_
 	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
 	cairo_paint(cr);
 	cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
+	cairo_scale(cr, surface->scale, surface->scale);
 	cairo_set_font_size(cr, 14);
 	cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 	double cur_x_pos = 1;
@@ -285,7 +286,6 @@ int main (int argc, char *argv[]) {
 		nwl_surface_set_need_draw(sub, false);
 		wl_surface_commit(sub->wl.surface);
 		wl_subsurface_set_desync(sub->role.subsurface.wl);
-
 	}
 	wl_surface_commit(main_surface->wl.surface);
 	nwl_wayland_run(&state);
