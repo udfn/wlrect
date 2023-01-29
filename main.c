@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/signalfd.h>
 #include <sys/timerfd.h>
 #include <time.h>
 #include <unistd.h>
@@ -83,7 +84,7 @@ static void rect_sub_render(struct nwl_surface *surface, cairo_surface_t *cairo_
 		cur_x_pos += 4 + cur_b->width;
 	}
 	if (rect_show_timer) {
-		char timestr[8];
+		char timestr[18];
 		struct timespec new_time;
 		clock_gettime(CLOCK_MONOTONIC, &new_time);
 		int secdiff = new_time.tv_sec-time_start.tv_sec;
@@ -93,7 +94,7 @@ static void rect_sub_render(struct nwl_surface *surface, cairo_surface_t *cairo_
 			secdiff -= 1;
 		}
 		nsecdiff /= 100000000;
-		snprintf(timestr, 8, "%02d:%02d.%d", secdiff / 60, secdiff % 60, nsecdiff);
+		snprintf(timestr, 18, "%02d:%02d.%d", secdiff / 60, secdiff % 60, nsecdiff);
 		cairo_set_source_rgba(cr, 0.9, 0.9, 0.9, 1.0);
 		cairo_move_to(cr, cur_x_pos, 16);
 		cairo_show_text(cr, timestr);
@@ -162,8 +163,8 @@ struct nwl_output *find_output(struct nwl_state *state, int32_t x, int32_t y) {
 	return NULL;
 }
 
-static void handle_term() {
-	main_surface->state->num_surfaces = 0; // This hack again :/
+static void handle_sigfd(struct nwl_state *state, void *data) {
+	state->num_surfaces = 0; // This hack again :/
 }
 
 static void print_usage(char *arg) {
@@ -220,11 +221,20 @@ int main (int argc, char *argv[]) {
 		fprintf(stderr, "Couldn't find output!\n");
 		goto finish;
 	}
-	struct sigaction saction = {0};
-	saction.sa_handler = handle_term;
-	sigaction(SIGTERM, &saction, NULL);
-	saction.sa_handler = handle_term;
-	sigaction(SIGINT, &saction, NULL);
+	sigset_t sigs;
+	sigemptyset(&sigs);
+	sigaddset(&sigs, SIGTERM);
+	sigaddset(&sigs, SIGINT);
+	if (sigprocmask(SIG_BLOCK, &sigs, NULL) == -1) {
+		fprintf(stderr, "Couldn't set signal mask!\n");
+		goto finish;
+	}
+	int sigfd = signalfd(-1, &sigs, 0);
+	if (sigfd == -1) {
+		fprintf(stderr, "signalfd failed!");
+		goto finish;
+	}
+	nwl_poll_add_fd(&state, sigfd, handle_sigfd, NULL);
 	x -= output->x + 2;
 	y -= output->y + 2;
 	int x2 = output->width - (x + width + 4);
