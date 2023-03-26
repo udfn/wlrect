@@ -242,7 +242,7 @@ int main (int argc, char *argv[]) {
 	int x2 = output->width - (x + width + 4);
 	int y2 = output->height - (y + height + 4);
 	main_surface = nwl_surface_create(&state, "wlrect");
-	nwl_surface_renderer_cairo(main_surface, false, rect_render);
+	nwl_surface_renderer_cairo(main_surface, rect_render, 0);
 	nwl_surface_role_layershell(main_surface, output->output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY);
 	zwlr_layer_surface_v1_set_exclusive_zone(main_surface->role.layer.wl, -1);
 	zwlr_layer_surface_v1_set_anchor(main_surface->role.layer.wl, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM|
@@ -264,7 +264,7 @@ int main (int argc, char *argv[]) {
 			sub->impl.input_pointer = sub_handle_pointer;
 			wl_region_add(sub_reg, 0, 0, sub_width, 23);
 		}
-		nwl_surface_renderer_cairo(sub, false, rect_sub_render);
+		nwl_surface_renderer_cairo(sub, rect_sub_render, 0);
 		nwl_surface_role_subsurface(sub, main_surface);
 		wl_surface_set_input_region(sub->wl.surface, sub_reg);
 		wl_region_destroy(sub_reg);
