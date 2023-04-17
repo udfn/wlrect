@@ -32,8 +32,8 @@ bool rect_show_timer = false;
 struct timespec time_start;
 int time_update_fd = -1;
 
-static void rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surface) {
-	cairo_t *cr = cairo_create(cairo_surface);
+static void rect_render(struct nwl_surface *surface, struct nwl_cairo_surface *cairo_surface) {
+	cairo_t *cr = cairo_surface->ctx;
 	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
 	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
 	cairo_paint(cr);
@@ -50,12 +50,12 @@ static void rect_render(struct nwl_surface *surface, cairo_surface_t *cairo_surf
 	cairo_set_dash(cr, dashes, 1, DASH_LENGTH);
 	cairo_set_source_rgba(cr, 0.8, 0.43, 0.1, 0.85);
 	cairo_stroke(cr);
-	cairo_destroy(cr);
 	nwl_surface_swapbuffers(surface, 0, 0);
 }
 
-static void rect_sub_render(struct nwl_surface *surface, cairo_surface_t *cairo_surface) {
-	cairo_t *cr = cairo_create(cairo_surface);
+static void rect_sub_render(struct nwl_surface *surface, struct nwl_cairo_surface *cairo_surface) {
+	cairo_t *cr = cairo_surface->ctx;
+	cairo_identity_matrix(cr);
 	cairo_set_source_rgba(cr, 0.2, 0.025, 0.0, 0.85);
 	cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
 	cairo_paint(cr);
@@ -101,7 +101,6 @@ static void rect_sub_render(struct nwl_surface *surface, cairo_surface_t *cairo_
 		cairo_move_to(cr, cur_x_pos, 16);
 		cairo_show_text(cr, timestr);
 	}
-	cairo_destroy(cr);
 	nwl_surface_swapbuffers(surface, 0, 0);
 }
 
