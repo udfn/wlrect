@@ -13,6 +13,7 @@
 #include <nwl/surface.h>
 #include <nwl/cairo.h>
 #include <nwl/seat.h>
+#include <sys/epoll.h>
 #include "wlr-layer-shell-unstable-v1.h"
 
 #define DASH_LENGTH 12.0
@@ -146,7 +147,7 @@ static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *sea
 	}
 }
 
-static void handle_timer(struct nwl_state *state, void *data) {
+static void handle_timer(struct nwl_state *state, uint32_t events, void *data) {
 	struct nwl_surface *sub = data;
 	nwl_surface_set_need_draw(sub, false);
 	char expire_count[8];
@@ -164,7 +165,7 @@ struct nwl_output *find_output(struct nwl_state *state, int32_t x, int32_t y) {
 	return NULL;
 }
 
-static void handle_sigfd(struct nwl_state *state, void *data) {
+static void handle_sigfd(struct nwl_state *state, uint32_t events, void *data) {
 	state->num_surfaces = 0; // This hack again :/
 }
 
@@ -235,7 +236,7 @@ int main (int argc, char *argv[]) {
 		fprintf(stderr, "signalfd failed!");
 		goto finish;
 	}
-	nwl_poll_add_fd(&state, sigfd, handle_sigfd, NULL);
+	nwl_poll_add_fd(&state, sigfd, EPOLLIN, handle_sigfd, NULL);
 	x -= output->x + 2;
 	y -= output->y + 2;
 	int x2 = output->width - (x + width + 4);
@@ -277,7 +278,7 @@ int main (int argc, char *argv[]) {
 				.it_value.tv_nsec = 100000000
 			};
 			timerfd_settime(time_update_fd, 0, &ts, NULL);
-			nwl_poll_add_fd(&state, time_update_fd, handle_timer, sub);
+			nwl_poll_add_fd(&state, time_update_fd, EPOLLIN, handle_timer, sub);
 			sub_width += (8*8) + 4;
 		}
 		int ofs = output->width - (x + sub_width);
