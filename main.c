@@ -17,23 +17,29 @@
 #include "wlr-layer-shell-unstable-v1.h"
 
 #define DASH_LENGTH 12.0
-struct nwl_surface *main_surface;
 
 struct wlrect_button {
 	char *text;
 	double width;
 };
 
-int rect_buttons_num = 0;
-bool rect_clicked_button = false;
-int rect_hovered_button = -1;
-struct wlrect_button *rect_buttons = NULL;
+struct wlrect_surface {
+	struct nwl_surface nwl;
+	struct nwl_surface sub_nwl;
+	struct nwl_cairo_renderer cairo;
+	struct nwl_cairo_renderer sub_cairo;
 
-bool rect_show_timer = false;
-struct timespec time_start;
-int time_update_fd = -1;
+	struct wlrect_button *buttons;
+	int buttons_num;
+	bool clicked_button;
+	int hovered_button;
+	bool show_timer;
+	struct timespec time_start;
+	int time_update_fd;
+} main_surface;
 
-static void rect_render(struct nwl_surface *surface, struct nwl_cairo_surface *cairo_surface) {
+static void rect_update(struct nwl_surface *surface) {
+	struct nwl_cairo_surface *cairo_surface = nwl_cairo_renderer_get_surface(&main_surface.cairo, surface, false);
 	cairo_t *cr = cairo_surface->ctx;
 	cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.0);
 	cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
@@ -51,10 +57,11 @@ static void rect_render(struct nwl_surface *surface, struct nwl_cairo_surface *c
 	cairo_set_dash(cr, dashes, 1, DASH_LENGTH);
 	cairo_set_source_rgba(cr, 0.8, 0.43, 0.1, 0.85);
 	cairo_stroke(cr);
-	nwl_surface_swapbuffers(surface, 0, 0);
+	nwl_cairo_renderer_submit(&main_surface.cairo, surface, 0, 0);
 }
 
-static void rect_sub_render(struct nwl_surface *surface, struct nwl_cairo_surface *cairo_surface) {
+static void rect_sub_update(struct nwl_surface *surface) {
+	struct nwl_cairo_surface *cairo_surface = nwl_cairo_renderer_get_surface(&main_surface.sub_cairo, surface, false);
 	cairo_t *cr = cairo_surface->ctx;
 	cairo_identity_matrix(cr);
 	cairo_set_source_rgba(cr, 0.2, 0.025, 0.0, 0.85);
@@ -65,9 +72,9 @@ static void rect_sub_render(struct nwl_surface *surface, struct nwl_cairo_surfac
 	cairo_set_font_size(cr, 14);
 	cairo_select_font_face(cr, "monospace", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
 	double cur_x_pos = 1;
-	for (int i = 0; i < rect_buttons_num; i++) {
-		struct wlrect_button *cur_b = &rect_buttons[i];
-		if (i == rect_hovered_button) {
+	for (int i = 0; i < main_surface.buttons_num; i++) {
+		struct wlrect_button *cur_b = &main_surface.buttons[i];
+		if (i == main_surface.hovered_button) {
 			cairo_set_source_rgba(cr, 0.45, 0.45, 0.45, 0.85);
 		} else {
 			cairo_set_source_rgba(cr, 0.4, 0.4, 0.4, 0.6);
@@ -75,7 +82,7 @@ static void rect_sub_render(struct nwl_surface *surface, struct nwl_cairo_surfac
 		cairo_rectangle(cr, cur_x_pos, 1, cur_b->width, surface->height-2);
 		cairo_fill(cr);
 		cairo_rectangle(cr, cur_x_pos, 1, cur_b->width, surface->height-2);
-		if (i == rect_hovered_button) {
+		if (i == main_surface.hovered_button) {
 			cairo_set_source_rgba(cr, 0.80, 0.80, 0.80, 0.95);
 		} else {
 			cairo_set_source_rgba(cr, 0.6, 0.6, 0.6, 0.9);
@@ -86,12 +93,12 @@ static void rect_sub_render(struct nwl_surface *surface, struct nwl_cairo_surfac
 		cairo_show_text(cr, cur_b->text);
 		cur_x_pos += 4 + cur_b->width;
 	}
-	if (rect_show_timer) {
+	if (main_surface.show_timer) {
 		char timestr[18];
 		struct timespec new_time;
 		clock_gettime(CLOCK_MONOTONIC, &new_time);
-		int secdiff = new_time.tv_sec-time_start.tv_sec;
-		int nsecdiff = new_time.tv_nsec-time_start.tv_nsec;
+		int secdiff = new_time.tv_sec-main_surface.time_start.tv_sec;
+		int nsecdiff = new_time.tv_nsec-main_surface.time_start.tv_nsec;
 		if (nsecdiff < 0) {
 			nsecdiff += 1000000000;
 			secdiff -= 1;
@@ -102,13 +109,13 @@ static void rect_sub_render(struct nwl_surface *surface, struct nwl_cairo_surfac
 		cairo_move_to(cr, cur_x_pos, 16);
 		cairo_show_text(cr, timestr);
 	}
-	nwl_surface_swapbuffers(surface, 0, 0);
+	nwl_cairo_renderer_submit(&main_surface.sub_cairo, surface, 0, 0);
 }
 
 static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *seat, struct nwl_pointer_event *event) {
 	if (event->changed & NWL_POINTER_EVENT_FOCUS && !event->focus) {
-		rect_hovered_button = -1;
-		nwl_surface_set_need_draw(surface, false);
+		main_surface.hovered_button = -1;
+		nwl_surface_set_need_update(surface, false);
 		return;
 	}
 	bool need_redraw = false;
@@ -120,12 +127,12 @@ static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *sea
 		int pointer_x = wl_fixed_to_int(event->surface_x);
 		int accum_x = 0;
 		bool found = false;
-		for (int i = 0; i < rect_buttons_num; i++) {
-			struct wlrect_button *cur_b = &rect_buttons[i];
+		for (int i = 0; i < main_surface.buttons_num; i++) {
+			struct wlrect_button *cur_b = &main_surface.buttons[i];
 			if (pointer_x > accum_x && pointer_x < (accum_x + cur_b->width+2) && !found) {
-				if (i == rect_hovered_button) {
+				if (i == main_surface.hovered_button) {
 					if (just_released) {
-						rect_clicked_button = true;
+						main_surface.clicked_button = true;
 						surface->state->num_surfaces = 0;
 						return;
 					}
@@ -133,25 +140,24 @@ static void sub_handle_pointer(struct nwl_surface *surface, struct nwl_seat *sea
 					break;
 				}
 				need_redraw = true;
-				rect_hovered_button = i;
+				main_surface.hovered_button = i;
 				found = true;
 			}
 			accum_x += cur_b->width + 4;
 		}
 		if (!found) {
-			rect_hovered_button = -1;
+			main_surface.hovered_button = -1;
 		}
 	}
 	if (need_redraw) {
-		nwl_surface_set_need_draw(surface, false);
+		nwl_surface_set_need_update(surface, false);
 	}
 }
 
 static void handle_timer(struct nwl_state *state, uint32_t events, void *data) {
-	struct nwl_surface *sub = data;
-	nwl_surface_set_need_draw(sub, false);
+	nwl_surface_set_need_update(&main_surface.sub_nwl, false);
 	char expire_count[8];
-	read(time_update_fd, expire_count, 8);
+	read(main_surface.time_update_fd, expire_count, 8);
 }
 
 struct nwl_output *find_output(struct nwl_state *state, int32_t x, int32_t y) {
@@ -186,11 +192,11 @@ int main (int argc, char *argv[]) {
 	while ((opt = getopt(argc, argv, "tb:")) != -1) {
 		switch (opt) {
 			case 't':
-			rect_show_timer = true;
+			main_surface.show_timer = true;
 			break;
 			case 'b': {
-				rect_buttons = realloc(rect_buttons, sizeof(struct wlrect_button)*++rect_buttons_num);
-				struct wlrect_button *new_b = &rect_buttons[rect_buttons_num-1];
+				main_surface.buttons = realloc(main_surface.buttons, sizeof(struct wlrect_button)*++main_surface.buttons_num);
+				struct wlrect_button *new_b = &main_surface.buttons[main_surface.buttons_num-1];
 				new_b->text = strdup(optarg);
 				new_b->width = (strlen(new_b->text) * 10) + 8;
 			}
@@ -241,69 +247,74 @@ int main (int argc, char *argv[]) {
 	y -= output->y + 2;
 	int x2 = output->width - (x + width + 4);
 	int y2 = output->height - (y + height + 4);
-	main_surface = nwl_surface_create(&state, "wlrect");
-	nwl_surface_renderer_cairo(main_surface, rect_render, 0);
-	nwl_surface_role_layershell(main_surface, output->output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY);
-	zwlr_layer_surface_v1_set_exclusive_zone(main_surface->role.layer.wl, -1);
-	zwlr_layer_surface_v1_set_anchor(main_surface->role.layer.wl, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM|
+	nwl_surface_init(&main_surface.nwl, &state, "wlrect");
+	nwl_cairo_renderer_init(&main_surface.cairo);
+	nwl_cairo_renderer_init(&main_surface.sub_cairo);
+	main_surface.nwl.impl.update = rect_update;
+	nwl_surface_role_layershell(&main_surface.nwl, output->output, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY);
+	zwlr_layer_surface_v1_set_exclusive_zone(main_surface.nwl.role.layer.wl, -1);
+	zwlr_layer_surface_v1_set_anchor(main_surface.nwl.role.layer.wl, ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM|
 			ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP|ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT|ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
-	zwlr_layer_surface_v1_set_margin(main_surface->role.layer.wl, y, x2, y2, x);
+	zwlr_layer_surface_v1_set_margin(main_surface.nwl.role.layer.wl, y, x2, y2, x);
 	struct wl_region *reg = wl_compositor_create_region(state.wl.compositor);
-	wl_surface_set_input_region(main_surface->wl.surface, reg);
+	wl_surface_set_input_region(main_surface.nwl.wl.surface, reg);
 	wl_region_destroy(reg);
-	if (rect_show_timer || rect_buttons_num) {
+	if (main_surface.show_timer || main_surface.buttons_num) {
+		main_surface.hovered_button = -1;
 		struct wl_region *sub_reg = wl_compositor_create_region(state.wl.compositor);
-		struct nwl_surface *sub = nwl_surface_create(&state, "wlrect sub");
+		nwl_surface_init(&main_surface.sub_nwl, &state, "wlrect sub");
 		int sub_y_pos = y2 < 24 && y > y2 ? -23 : height + 4;
 		int sub_width = 0;
-		for (int i = 0; i < rect_buttons_num; i++) {
-			sub_width += rect_buttons[i].width + 4;
+		for (int i = 0; i < main_surface.buttons_num; i++) {
+			sub_width += main_surface.buttons[i].width + 4;
 		}
 		if (sub_width > 0) {
 			sub_width -= 2;
-			sub->impl.input_pointer = sub_handle_pointer;
+			main_surface.sub_nwl.impl.input_pointer = sub_handle_pointer;
 			wl_region_add(sub_reg, 0, 0, sub_width, 23);
 		}
-		nwl_surface_renderer_cairo(sub, rect_sub_render, 0);
-		nwl_surface_role_subsurface(sub, main_surface);
-		wl_surface_set_input_region(sub->wl.surface, sub_reg);
+		main_surface.sub_nwl.impl.update = rect_sub_update;
+		nwl_surface_role_subsurface(&main_surface.sub_nwl, &main_surface.nwl);
+		wl_surface_set_input_region(main_surface.sub_nwl.wl.surface, sub_reg);
 		wl_region_destroy(sub_reg);
-		if (rect_show_timer) {
-			clock_gettime(CLOCK_MONOTONIC, &time_start);
-			time_update_fd = timerfd_create(CLOCK_MONOTONIC, 0);
+		if (main_surface.show_timer) {
+			clock_gettime(CLOCK_MONOTONIC, &main_surface.time_start);
+			main_surface.time_update_fd = timerfd_create(CLOCK_MONOTONIC, 0);
 			struct itimerspec ts = {
 				.it_interval.tv_sec = 0,
 				.it_interval.tv_nsec = 100000000,
 				.it_value.tv_sec = 0,
 				.it_value.tv_nsec = 100000000
 			};
-			timerfd_settime(time_update_fd, 0, &ts, NULL);
-			nwl_poll_add_fd(&state, time_update_fd, EPOLLIN, handle_timer, sub);
+			timerfd_settime(main_surface.time_update_fd, 0, &ts, NULL);
+			nwl_poll_add_fd(&state, main_surface.time_update_fd, EPOLLIN, handle_timer, NULL);
 			sub_width += (8*8) + 4;
 		}
 		int ofs = output->width - (x + sub_width);
-		wl_subsurface_set_position(sub->role.subsurface.wl, ofs < 0 ? ofs : 0, sub_y_pos);
-		nwl_surface_set_size(sub, sub_width, 23);
-		nwl_surface_set_need_draw(sub, false);
-		wl_surface_commit(sub->wl.surface);
-		wl_subsurface_set_desync(sub->role.subsurface.wl);
+		wl_subsurface_set_position(main_surface.sub_nwl.role.subsurface.wl, ofs < 0 ? ofs : 0, sub_y_pos);
+		nwl_surface_set_size(&main_surface.sub_nwl, sub_width, 23);
+		nwl_surface_set_need_update(&main_surface.sub_nwl, false);
+		wl_surface_commit(main_surface.sub_nwl.wl.surface);
+		wl_subsurface_set_desync(main_surface.sub_nwl.role.subsurface.wl);
 	}
-	wl_surface_commit(main_surface->wl.surface);
+	wl_surface_commit(main_surface.nwl.wl.surface);
 	nwl_wayland_run(&state);
 	retval = 0;
 finish:
+	nwl_cairo_renderer_finish(&main_surface.cairo);
+	nwl_cairo_renderer_finish(&main_surface.sub_cairo);
 	nwl_wayland_uninit(&state);
-	if (time_update_fd == -1) {
-		close(time_update_fd);
+	if (main_surface.time_update_fd != -1) {
+		close(main_surface.time_update_fd);
 	}
-	if (rect_clicked_button) {
-		puts(rect_buttons[rect_hovered_button].text);
+	if (main_surface.clicked_button) {
+		puts(main_surface.buttons[main_surface.hovered_button].text);
 	}
-	if (rect_buttons_num) {
-		for (int i = 0; i < rect_buttons_num; i++) {
-			free(rect_buttons[i].text);
+	if (main_surface.buttons_num) {
+		for (int i = 0; i < main_surface.buttons_num; i++) {
+			free(main_surface.buttons[i].text);
 		}
-		free(rect_buttons);
+		free(main_surface.buttons);
 	}
 	return retval;
 }
